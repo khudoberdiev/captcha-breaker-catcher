@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CAPTCHA behavior capture</title>
+<style>
+  body { font-family: -apple-system, Arial, sans-serif; max-width: 560px; margin: 32px auto; padding: 0 16px; text-align: center; color: #222; }
+  .note { font-size: 14px; color: #555; margin: 0 0 16px; line-height: 1.4; }
+  #setup input { font-size: 16px; padding: 8px; width: 160px; text-align: center; }
+  #setup button { font-size: 16px; padding: 8px 16px; cursor: pointer; }
+
+  /* The 400 x 250 box from the shared log spec. Everything inside is placed in exact pixels,
+     and mouse positions are logged relative to this box's top-left corner. */
+  #box { display: none; position: relative; width: 400px; height: 250px; margin: 16px auto; box-shadow: 0 0 0 1px #ccc; }
+  #captcha-img  { position: absolute; left: 120px; top: 40px;  width: 160px; height: 60px; }
+  #answer-input { position: absolute; left: 120px; top: 130px; width: 160px; height: 30px; box-sizing: border-box;
+                  font-size: 16px; text-align: center; letter-spacing: 2px; padding: 0; }
+  #submit-btn   { position: absolute; left: 150px; top: 180px; width: 100px; height: 30px; box-sizing: border-box;
+                  font-size: 15px; padding: 0; cursor: pointer; }
+  #status { margin-top: 12px; font-size: 14px; color: #555; min-height: 40px; white-space: pre-line; }
+</style>
+</head>
+<body>
+
+<h2>Solve the CAPTCHA</h2>
+<p class="note">
+  Please use a laptop or desktop with a mouse or trackpad (not a phone) and solve it the way you normally would.
+  We record when and where your mouse moves and clicks on this page, and which letters or digits you type in the
+  answer box. Nothing else. Click the answer box to type, then click Submit (Enter does nothing).
+</p>
+
+<div id="setup">
+  <input type="text" id="participant" placeholder="Your initials (e.g. OT)" maxlength="12" autocomplete="off">
+  <button id="start-btn" type="button">Start</button>
+</div>
+
+<div id="box">
+  <img id="captcha-img" alt="captcha">
+  <input type="text" id="answer-input" autocomplete="off">
+  <button id="submit-btn" type="button">Submit</button>
+</div>
+
+<div id="status"></div>
+
+<script>
+const box = document.getElementById("box");
+const img = document.getElementById("captcha-img");
+const input = document.getElementById("answer-input");
+const submitBtn = document.getElementById("submit-btn");
+const statusEl = document.getElementById("status");
+
+let events = [];            // rows of the shared log format, one session at a time
+let sessionStart = null;    // performance.now() when the CAPTCHA image appeared (null = not recording)
+let lastClient = null;      // last mouse position seen anywhere on the page
+let currentAnswer = null;
+let participant = "";
+let solved = 0;
+let submitting = false;
+
+// position relative to the top-left corner of the CAPTCHA box
+function rel(clientX, clientY) {
+  const r = box.getBoundingClientRect();
+  return { x: Math.round(clientX - r.left), y: Math.round(clientY - r.top) };
+}
+function now() { return Math.round(performance.now() - sessionStart); }
+
+async function loadNextCaptcha() {
+  sessionStart = null;      // stop recording while the next image loads
+  events = [];
+  input.value = "";
+  const res = await fetch("/api/next-captcha");
+  const data = await res.json();
+  if (!data.image_url) { statusEl.textContent = data.message || "No CAPTCHAs available."; return; }
+  currentAnswer = data.answer;
+  img.src = data.image_url + "?t=" + Date.now();      // bypass the browser cache
+}
+
+// t_ms = 0 is the moment the CAPTCHA appears
+img.onload = () => {
+  events = [];
+  sessionStart = performance.now();
+  if (lastClient) {
+    const p = rel(lastClient.x, lastClient.y);
+    events.push({ t_ms: 0, event: "mouse_move", x: p.x, y: p.y });   // starting position
+  }
+  submitting = false;
+};
+
+document.addEventListener("mousemove", (e) => {
+  lastClient = { x: e.clientX, y: e.clientY };
+  if (sessionStart === null) return;
+  const p = rel(e.clientX, e.clientY);
+  if (events.length === 0) events.push({ t_ms: 0, event: "mouse_move", x: p.x, y: p.y });  // no earlier position known
+  events.push({ t_ms: now(), event: "mouse_move", x: p.x, y: p.y });
+});
+
+// capture phase: the click row is recorded before the Submit handler adds its submit row
+document.addEventListener("mousedown", (e) => {
+  if (sessionStart === null || e.button !== 0) return;
+  const p = rel(e.clientX, e.clientY);
+  events.push({ t_ms: now(), event: "click", x: p.x, y: p.y });
+}, true);
+
+function keyName(e) {
+  if (e.key === "Backspace") return "Backspace";
+  return /^[A-Za-z0-9]$/.test(e.key) ? e.key : null;     // letters, digits, Backspace only
+}
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") e.preventDefault();
+  const k = keyName(e);
+  if (sessionStart === null || e.repeat || !k) return;
+  events.push({ t_ms: now(), event: "key_down", key: k });
+});
+input.addEventListener("keyup", (e) => {
+  const k = keyName(e);
+  if (sessionStart === null || !k) return;
+  events.push({ t_ms: now(), event: "key_up", key: k });
+});
+
+submitBtn.addEventListener("mousedown", async (e) => {
+  if (e.button !== 0 || sessionStart === null || submitting) return;
+  if (!input.value.trim()) { statusEl.textContent = "Type an answer first."; return; }
+  submitting = true;
+
+  const clickTime = events[events.length - 1].t_ms;      // the click row just recorded
+  events = events.filter((ev) => ev.event !== "submit");
+  events.push({ t_ms: clickTime + 1, event: "submit" });
+  const correct = input.value.trim().toUpperCase() === (currentAnswer || "").toUpperCase();
+
+  try {
+    const res = await fetch("/api/log-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ participant, events })
+    });
+    const result = await res.json();
+    if (result.status !== "ok") throw new Error(result.message || "save failed");
+    solved += 1;
+    statusEl.textContent = (correct ? "Correct. " : "Not quite. ") + `Saved (${solved} so far, aim for 15).`;
+    sessionStart = null;
+    setTimeout(loadNextCaptcha, 900);
+  } catch (err) {
+    statusEl.textContent = "Could not save: " + err.message + " (click Submit to try again)";
+    submitting = false;
+  }
+});
+
+document.getElementById("start-btn").addEventListener("click", () => {
+  participant = document.getElementById("participant").value.replace(/[^A-Za-z0-9]/g, "").slice(0, 12);
+  if (!participant) { statusEl.textContent = "Enter your initials first."; return; }
+  document.getElementById("setup").style.display = "none";
+  box.style.display = "block";
+  statusEl.textContent = "";
+  loadNextCaptcha();
+});
+</script>
+</body>
+</html>
