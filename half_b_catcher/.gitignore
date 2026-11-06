@@ -1,0 +1,7 @@
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
+data/human_sessions.csv
+data/synthetic/
+results/*_FAKE*
+capture/static/captchas/*.png
