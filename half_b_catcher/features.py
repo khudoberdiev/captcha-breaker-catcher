@@ -12,7 +12,7 @@ one row = one event, one session = all rows with the same session_id.
     h_OT_3fa9c2,human,5120,click,201,195,
     h_OT_3fa9c2,human,5121,submit,,,
 
-label: human | bot_naive | bot_evasive.   t_ms: ms since the CAPTCHA appeared.
+label: human | bot_naive | bot_evasive | bot_evasive_v2.   t_ms: ms since the CAPTCHA appeared.
 x, y: px relative to the top-left corner of the CAPTCHA box.
 
 One convention on top of the format: human session ids look like  h_<initials>_<anything>,
@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 
 REQUIRED_COLUMNS = ["session_id", "label", "t_ms", "event", "x", "y", "key"]
-LABELS = {"human": "human", "bot_naive": "naive", "bot_evasive": "evasive"}   # label -> kind
+LABELS = {"human": "human", "bot_naive": "naive", "bot_evasive": "evasive", "bot_evasive_v2": "evasive_v2"}
 EVENTS = {"mouse_move", "click", "key_down", "key_up", "submit"}
 
 # The 9 simple features for round 1 (timing + rough mouse statistics).

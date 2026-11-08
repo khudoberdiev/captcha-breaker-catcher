@@ -1,0 +1,7 @@
+,human wrongly flagged,naive bot caught,evasive bot caught,evasive v2 caught
+"1  Round 1: basic features, trained on naive bots",0.0,1.0,0.0025,0.034166666666666665
+2  Better features only (trained on naive bots),0.0,1.0,0.0,0.0
+"3  Retrained with evasive bots, basic features",0.009576612903225807,1.0,1.0,0.6941666666666666
+4  Round 3: better features + retrained,0.0,1.0,1.0,0.6616666666666666
+"5  Round 5: better features, trained through evasive",0.0,1.0,1.0,0.6616666666666666
+6  Round 6: better features + evasive v2 training,0.0,1.0,1.0,0.9991666666666668
