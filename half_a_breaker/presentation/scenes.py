@@ -472,3 +472,197 @@ class Act1_Heads(Scene):
         done = Text("The model's answer", font_size=30, color=GREY).next_to(answer, DOWN, buff=0.4)
         self.play(FadeIn(done))
         self.wait(2.5)
+
+
+# ################################################################ ACT 2
+# The answer becomes actions: mouse moves, clicks, typing, submit.
+# Data: data/naive.csv and data/evasive.csv (same format as LOG_FORMAT.md).
+
+import csv
+
+PAGE_W, PAGE_H = 400, 250                     # the page box, in pixels (LOG_FORMAT.md)
+
+
+def load_session(name):
+    rows = list(csv.DictReader(open(DATA / name)))
+    for r in rows:
+        r["t_ms"] = int(r["t_ms"])
+    return rows
+
+
+class Page:
+    """The 400 × 250 page drawn on screen, plus a pixel → screen converter."""
+
+    def __init__(self, width=7.0, center=DOWN * 0.05):
+        self.s = width / PAGE_W                                   # screen units per pixel
+        self.box = Rectangle(width=width, height=PAGE_H * self.s,
+                             stroke_color=GREY, stroke_width=2,
+                             fill_color="#161b24", fill_opacity=1).move_to(center)
+        self.tl = self.box.get_corner(UL)
+
+        img = ImageMobject(CAPTCHA_PNG)
+        img.width = 160 * self.s
+        img.move_to(self.pt(200, 70))                             # x 120–280, y 40–100
+
+        self.input_box = Rectangle(width=160 * self.s, height=30 * self.s,
+                                   stroke_color=GREY, stroke_width=2,
+                                   fill_color=WHITE, fill_opacity=0.95).move_to(self.pt(200, 145))
+        self.button = RoundedRectangle(width=100 * self.s, height=30 * self.s, corner_radius=0.08,
+                                       fill_color="#378ADD", fill_opacity=1,
+                                       stroke_width=0).move_to(self.pt(200, 195))
+        btn_text = Text("Submit", font_size=22, color=WHITE).move_to(self.button)
+        self.size = Text("400 × 250 page", font_size=20, color=GREY).next_to(self.box, UP, buff=0.12).align_to(self.box, LEFT)
+        self.group = Group(self.box, img, self.input_box, self.button, btn_text, self.size)
+
+    def pt(self, x, y):
+        return self.tl + RIGHT * float(x) * self.s + DOWN * float(y) * self.s
+
+
+def cursor_shape():
+    """A small mouse pointer; its tip is the first point."""
+    arrow = Polygon([0, 0, 0], [0, -0.42, 0], [0.11, -0.31, 0], [0.2, -0.5, 0],
+                    [0.27, -0.46, 0], [0.18, -0.28, 0], [0.32, -0.28, 0],
+                    fill_color=WHITE, fill_opacity=1, stroke_color=BLACK, stroke_width=1.5)
+    return arrow
+
+
+def replay(scene, page, rows, speed=1.0, trail_color=GOLD, timeline=None):
+    """Play a logged session in (scaled) real time.
+    timeline: (x_left, x_right, y) on screen → key presses appear as ticks."""
+    moves = [(r["t_ms"], float(r["x"]), float(r["y"])) for r in rows if r["event"] == "mouse_move"]
+    clicks = [(r["t_ms"], float(r["x"]), float(r["y"])) for r in rows if r["event"] == "click"]
+    keys = [(r["t_ms"], r["key"]) for r in rows if r["event"] == "key_down"]
+    total = rows[-1]["t_ms"]
+    now = ValueTracker(0)
+
+    def mouse_at(t):
+        prev = moves[0]
+        for m in moves:
+            if m[0] > t:
+                t0, x0, y0 = prev
+                t1, x1, y1 = m
+                a = 0 if t1 == t0 else (t - t0) / (t1 - t0)
+                return page.pt(x0 + (x1 - x0) * a, y0 + (y1 - y0) * a)
+            prev = m
+        return page.pt(prev[1], prev[2])
+
+    cursor = cursor_shape()
+    cursor.add_updater(lambda m: m.shift(mouse_at(now.get_value()) - m.get_vertices()[0]))
+
+    trail = TracedPath(lambda: mouse_at(now.get_value()), stroke_color=trail_color,
+                       stroke_width=3, stroke_opacity=0.8)
+
+    def typed_text():
+        txt = "".join(k for t, k in keys if t <= now.get_value())
+        if not txt:                                   # nothing typed yet → invisible placeholder
+            return Dot(radius=0.001, fill_opacity=0).move_to(page.input_box)
+        return (Text(txt, font_size=26, color=BLACK).move_to(page.input_box)
+                .align_to(page.input_box, LEFT).shift(RIGHT * 0.15))
+
+    typed = always_redraw(typed_text)
+
+    def ripples():
+        g = VGroup()
+        for t, x, y in clicks:
+            age = now.get_value() - t
+            if 0 <= age <= 350:
+                a = age / 350
+                g.add(Circle(radius=0.08 + 0.4 * a, color=GOLD, stroke_width=4 * (1 - a) + 0.5)
+                      .set_stroke(opacity=1 - a).move_to(page.pt(x, y)))
+        return g
+
+    ripple = always_redraw(ripples)
+    clock = always_redraw(lambda: Text(f"{now.get_value() / 1000:.2f} s", font_size=34, color=GOLD)
+                          .next_to(page.box, RIGHT, buff=0.35).align_to(page.box, UP))
+
+    extras = []
+    if timeline is not None:
+        xl, xr, y = timeline
+        axis = Line([xl, y, 0], [xr, y, 0], color=GREY, stroke_width=2)
+        lab = Text("key presses", font_size=20, color=GREY).next_to(axis, LEFT, buff=0.25)
+        end = Text(f"{total / 1000:.1f} s", font_size=20, color=GREY).next_to(axis, RIGHT, buff=0.25)
+
+        def ticks():
+            g = VGroup()
+            for t, k in keys:
+                if t <= now.get_value():
+                    x = xl + (xr - xl) * t / total
+                    g.add(VGroup(Line([x, y - 0.12, 0], [x, y + 0.25, 0], color=GOLD, stroke_width=4),
+                                 Text(k, font_size=20, color=GOLD).move_to([x, y + 0.45, 0])))
+            return g
+
+        tick_marks = always_redraw(ticks)
+        scene.add(axis, lab, end, tick_marks)
+        extras = [axis, lab, end, tick_marks]
+
+    scene.add(trail, typed, ripple, clock, cursor)
+    scene.play(now.animate.set_value(total), run_time=total / 1000 / speed, rate_func=linear)
+    scene.wait(0.3)
+    return Group(trail, typed, ripple, clock, cursor, *extras), now
+
+
+# ================================================================ Act 2 · Scene 1
+class Act2_Naive(Scene):
+    """The naive bot: straight line, instant typing — blink and it's done."""
+
+    def construct(self):
+        title = Text(f"The answer is ready: {ANSWER}. Now the bot has to act.", font_size=32).to_edge(UP, buff=0.4)
+        page = Page()
+        self.play(FadeIn(title))
+        self.play(FadeIn(page.group))
+        self.wait(1)
+
+        rows = load_session("naive.csv")
+        sub = Text("Naive bot · real speed", font_size=28, color=TEAL).next_to(title, DOWN, buff=0.2)
+        self.play(FadeIn(sub))
+        played, _ = replay(self, page, rows, speed=1.0)
+        cap = caption(f"Done in {rows[-1]['t_ms'] / 1000:.2f} seconds. Did you even see it?", size=26)
+        self.play(FadeIn(cap))
+        self.wait(2)
+
+        # again, slowed down, with the path drawn
+        self.play(FadeOut(cap), FadeOut(played))
+        sub2 = Text("Same bot · slowed down 6×", font_size=28, color=TEAL).move_to(sub)
+        self.play(ReplacementTransform(sub, sub2))
+        tl = (page.box.get_left()[0], page.box.get_right()[0], page.box.get_bottom()[1] - 0.55)
+        played, _ = replay(self, page, rows, speed=1 / 6, timeline=tl)
+        cap = caption("Perfectly straight line · constant speed · same gap between every key", size=24)
+        self.play(FadeIn(cap))
+        self.wait(3)
+
+
+# ================================================================ Act 2 · Scene 2
+class Act2_Evasive(Scene):
+    """The evasive bot: reading pause, curved path, uneven typing."""
+
+    def construct(self):
+        title = Text("The evasive bot: same answer, human-like behaviour", font_size=32).to_edge(UP, buff=0.4)
+        page = Page()
+        self.play(FadeIn(title), FadeIn(page.group))
+
+        rows = load_session("evasive.csv")
+        sub = Text("real speed", font_size=28, color=TEAL).next_to(title, DOWN, buff=0.2)
+        self.play(FadeIn(sub))
+        tl = (page.box.get_left()[0], page.box.get_right()[0], page.box.get_bottom()[1] - 0.55)
+        played, _ = replay(self, page, rows, speed=1.0, trail_color=TEAL, timeline=tl)
+
+        first_move = next(r["t_ms"] for r in rows[1:] if r["event"] == "mouse_move")
+        cap = caption(f"Waits {first_move / 1000:.1f} s to 'read' · curved, wobbly path · uneven typing — "
+                      f"{rows[-1]['t_ms'] / 1000:.1f} s in total", size=24)
+        self.play(FadeIn(cap))
+        self.wait(3.5)
+
+
+# ================================================================ Act 2 · Scene 3
+class Act2_Handoff(Scene):
+    def construct(self):
+        a = Text("It reads the CAPTCHA.", font_size=40)
+        b = Text("It moves and types like a person.", font_size=40)
+        c = Text("Can anything still tell it's a bot?", font_size=44, color=GOLD)
+        VGroup(a, b, c).arrange(DOWN, buff=0.6)
+        self.play(FadeIn(a, shift=UP * 0.2))
+        self.wait(0.8)
+        self.play(FadeIn(b, shift=UP * 0.2))
+        self.wait(0.8)
+        self.play(Write(c), run_time=1.5)
+        self.wait(2.5)

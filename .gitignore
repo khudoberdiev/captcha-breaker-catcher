@@ -6,3 +6,5 @@ data/
 *.pt
 media/
 half_a_breaker/presentation/final/
+half_a_breaker/presentation/data/human_a.csv
+half_a_breaker/presentation/data/features.csv
