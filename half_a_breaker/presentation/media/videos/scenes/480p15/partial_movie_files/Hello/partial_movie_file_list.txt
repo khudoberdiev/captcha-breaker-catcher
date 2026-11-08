@@ -1,0 +1,3 @@
+# This file records the segment order used by Manim.
+file 'file:/Users/user/Desktop/captcha-project/half_a_breaker/presentation/media/videos/scenes/480p15/partial_movie_files/Hello/c0339fceeb3a11bcd3b81c1d0d6dd1956f09e6e128f05f3f1ce8d18d5acb0deb.mp4'
+file 'file:/Users/user/Desktop/captcha-project/half_a_breaker/presentation/media/videos/scenes/480p15/partial_movie_files/Hello/82b753b2b915f9888c4db236a614267ae0d1002e9f6a5b7a08070ab500781eb9.mp4'

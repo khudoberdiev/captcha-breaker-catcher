@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How the CAPTCHA CNN Works</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #10141d;
+      color: #f3f6fc;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-width: 760px;
+      min-height: 100vh;
+      padding: 32px;
+      background: radial-gradient(ellipse at top, #1d2940 0, #10141d 65%);
+    }
+
+    header {
+      margin: 0 auto 24px;
+      max-width: 1500px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2rem, 3vw, 3rem);
+      letter-spacing: 0.02em;
+    }
+
+    main {
+      display: flex;
+      align-items: stretch;
+      gap: 28px;
+      max-width: 1500px;
+      margin: 0 auto;
+    }
+
+    section {
+      min-width: 0;
+      flex: 1 1 0;
+      padding: 24px;
+      border: 1px solid #354258;
+      border-radius: 18px;
+      background: #171e2b;
+      box-shadow: 0 16px 40px rgb(0 0 0 / 22%);
+    }
+
+    h2 {
+      margin: 0 0 20px;
+      color: #bdcbe0;
+      font-size: 1.15rem;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .diagram {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .box {
+      padding: 14px 18px;
+      border: 1px solid #55657a;
+      border-radius: 12px;
+      background: #303b4b;
+      outline: 3px solid transparent;
+      text-align: center;
+      cursor: pointer;
+      transition: transform 180ms ease, outline-color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .box:hover {
+      transform: translateY(-2px);
+    }
+
+    .box:focus-visible {
+      outline-color: #f2c879;
+    }
+
+    .box.active {
+      outline-color: #ffe36e;
+      box-shadow: 0 0 20px rgb(255 227 110 / 35%);
+      transform: scale(1.03);
+    }
+
+    .box strong {
+      display: block;
+      font-size: 1.2rem;
+      line-height: 1.35;
+    }
+
+    .box small {
+      display: block;
+      margin-top: 4px;
+      color: #d3deec;
+      font-size: 1rem;
+      line-height: 1.4;
+    }
+
+    .block-box {
+      border-color: #168b9d;
+      background: #124454;
+    }
+
+    .feature-box {
+      border-color: #8062ca;
+      background: #35295a;
+    }
+
+    .arrow {
+      height: 28px;
+      color: #a9bad0;
+      font-size: 1.35rem;
+      line-height: 28px;
+      text-align: center;
+    }
+
+    .code-panel {
+      display: flex;
+      flex-direction: column;
+    }
+
+    pre {
+      flex: 1;
+      margin: 0;
+      padding: 20px;
+      overflow: auto;
+      border: 1px solid #354258;
+      border-radius: 12px;
+      background: #0c1119;
+      color: #e6edf7;
+      font: 16px/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      tab-size: 4;
+    }
+
+    pre code span {
+      border-radius: 4px;
+      transition: background-color 180ms ease, color 180ms ease;
+    }
+
+    pre code span.active {
+      border-radius: 4px;
+      background: rgb(255 227 110 / 28%);
+      color: #fff3bd;
+      font-weight: 700;
+    }
+
+    .block1,
+    .block2,
+    .block3 {
+      color: #66d9e8;
+    }
+
+    .flatten,
+    .heads {
+      color: #c8a9ff;
+    }
+
+    .input {
+      color: #f2c879;
+    }
+
+    pre.has-selection code,
+    pre.has-selection code span:not(.active) {
+      color: #788494;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>How the CAPTCHA CNN Works</h1>
+  </header>
+
+  <main>
+    <section aria-labelledby="diagram-title">
+      <h2 id="diagram-title">From image to characters</h2>
+      <div class="diagram">
+        <div class="box" data-target="input" role="button" tabindex="0" aria-pressed="false">
+          <strong>Input</strong>
+          <small>1 × 60 × 160</small>
+        </div>
+        <div class="arrow" aria-hidden="true">↓</div>
+        <div class="box block-box" data-target="block1" role="button" tabindex="0" aria-pressed="false">
+          <strong>Block 1: conv → BN → ReLU → pool</strong>
+          <small>32 × 30 × 80</small>
+        </div>
+        <div class="arrow" aria-hidden="true">↓</div>
+        <div class="box block-box" data-target="block2" role="button" tabindex="0" aria-pressed="false">
+          <strong>Block 2: conv → BN → ReLU → pool</strong>
+          <small>64 × 15 × 40</small>
+        </div>
+        <div class="arrow" aria-hidden="true">↓</div>
+        <div class="box block-box" data-target="block3" role="button" tabindex="0" aria-pressed="false">
+          <strong>Block 3: conv → BN → ReLU → pool</strong>
+          <small>128 × 7 × 20</small>
+        </div>
+        <div class="arrow" aria-hidden="true">↓</div>
+        <div class="box feature-box" data-target="flatten" role="button" tabindex="0" aria-pressed="false">
+          <strong>Flatten</strong>
+          <small>17,920 features</small>
+        </div>
+        <div class="arrow" aria-hidden="true">↓</div>
+        <div class="box feature-box" data-target="heads" role="button" tabindex="0" aria-pressed="false">
+          <strong>5 Heads</strong>
+          <small>5 × Linear(17,920 → 32), one per character</small>
+        </div>
+      </div>
+    </section>
+
+    <section class="code-panel" aria-labelledby="code-title">
+      <h2 id="code-title">PyTorch model</h2>
+      <pre><code>class CaptchaCNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        # ---- shared body: 3 blocks of conv → batchnorm → relu → pool ----
+        <span class="block1">self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)    # 1 channel in → 32 out
+        self.bn1   = nn.BatchNorm2d(32)                             # rescale conv1's 32 channels</span>
+
+        <span class="block2">self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)   # 32 → 64
+        self.bn2   = nn.BatchNorm2d(64)                             # rescale conv2's 64 channels</span>
+
+        <span class="block3">self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)  # 64 → 128
+        self.bn3   = nn.BatchNorm2d(128)                            # rescale conv3's 128 channels</span>
+
+        self.pool  = nn.MaxPool2d(2)                                # halves height and width (reused)
+
+        # ---- 5 heads: one Linear per character position ----
+        <span class="heads">self.heads = nn.ModuleList(
+            [nn.Linear(128 * 7 * 20, len(CHARSET))                  # 17,920 features → 32 scores
+             for _ in range(LENGTH)]                                # × 5 positions
+        )</span>
+
+    <span class="input">def forward(self, x):                                           # x: (B, 1, 60, 160)</span>
+        <span class="block1">x = self.pool(F.relu(self.bn1(self.conv1(x))))              # → (B, 32, 30, 80)</span>
+        <span class="block2">x = self.pool(F.relu(self.bn2(self.conv2(x))))              # → (B, 64, 15, 40)</span>
+        <span class="block3">x = self.pool(F.relu(self.bn3(self.conv3(x))))              # → (B, 128, 7, 20)</span>
+        <span class="flatten">x = x.flatten(1)                                            # → (B, 17920)</span>
+        <span class="heads">return [head(x) for head in self.heads]                     # → 5 × (B, 32)</span></code></pre>
+    </section>
+  </main>
+  <script>
+    const boxes = Array.from(document.querySelectorAll(".box[data-target]"));
+    const code = document.querySelector(".code-panel pre code");
+    const pre = code.closest("pre");
+    const codeSpans = Array.from(code.querySelectorAll("span"));
+    let selectedBox = null;
+
+    function clearSelection() {
+      boxes.forEach((box) => {
+        box.classList.remove("active");
+        box.setAttribute("aria-pressed", "false");
+      });
+      codeSpans.forEach((span) => span.classList.remove("active"));
+      pre.classList.remove("has-selection");
+      selectedBox = null;
+    }
+
+    function selectBox(box) {
+      if (selectedBox === box) {
+        clearSelection();
+        return;
+      }
+
+      clearSelection();
+      selectedBox = box;
+      box.classList.add("active");
+      box.setAttribute("aria-pressed", "true");
+
+      const target = box.dataset.target;
+      const matchingSpans = codeSpans.filter((span) => span.classList.contains(target));
+      matchingSpans.forEach((span) => span.classList.add("active"));
+
+      if (matchingSpans.length > 0) {
+        pre.classList.add("has-selection");
+        const span = matchingSpans[0];
+        const spanRect = span.getBoundingClientRect();
+        const preRect = pre.getBoundingClientRect();
+        const top = pre.scrollTop + spanRect.top - preRect.top
+          - (pre.clientHeight - spanRect.height) / 2;
+        pre.scrollTo({ top, behavior: "smooth" });
+      }
+    }
+
+    boxes.forEach((box) => {
+      box.addEventListener("click", () => selectBox(box));
+      box.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          selectBox(box);
+        }
+      });
+    });
+
+    document.addEventListener("keydown", (event) => {
+      const direction = ["ArrowDown", "ArrowRight"].includes(event.key) ? 1
+        : ["ArrowUp", "ArrowLeft"].includes(event.key) ? -1
+        : 0;
+
+      if (direction !== 0) {
+        event.preventDefault();
+        const currentIndex = boxes.indexOf(selectedBox);
+        const nextIndex = currentIndex === -1
+          ? (direction === 1 ? 0 : boxes.length - 1)
+          : (currentIndex + direction + boxes.length) % boxes.length;
+        selectBox(boxes[nextIndex]);
+      } else if (event.key === "Escape") {
+        clearSelection();
+      }
+    });
+  </script>
+</body>
+</html>
