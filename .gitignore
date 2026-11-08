@@ -4,3 +4,5 @@ __pycache__/
 .DS_Store
 data/
 *.pt
+media/
+half_a_breaker/presentation/final/
